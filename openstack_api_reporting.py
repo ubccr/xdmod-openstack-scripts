@@ -31,16 +31,16 @@ def getDBEvents(config):
                     db=config['db'],
                     cursorclass=MySQLdb.cursors.DictCursor
                     )
-    
+
     cursor = conn.cursor()
 
     if config['nostate']:
         exclude_clause = ' AND '
         new_exclude_clauses = []
-        
+
         for exclude in config['skip_events']:
             new_exclude_clauses.append("et.desc != '{}'".format(exclude))
-        
+
         exclude_clause += " AND ".join(new_exclude_clauses)
     else:
         exclude_clause=''
@@ -52,20 +52,20 @@ def getDBEvents(config):
                     e.message_id AS message_id,
                     e.generated AS generated,
                     et.desc AS event_type
-                FROM 
+                FROM
                     event e,
                     event_type et
                 WHERE
                     e.event_type_id=et.id AND
                     e.generated BETWEEN unix_timestamp('{}') AND unix_timestamp('{}') {}
             '''.format(config['start'], config['end'], exclude_clause)
-    
+
     logging.warning("Event Query: %s", event_query)
-    
+
     cursor.execute(event_query)
-    
+
     events = {}
-    
+
     for row in cursor:
         _id = row['event_id']
         events[_id]={
@@ -76,11 +76,11 @@ def getDBEvents(config):
                      'raw': {},
                      'traits': []
                     }
-    
+
     # Get all the traits
     # When doing time based queries, join on the event table to limit the results
     #   and not rely on the try block below
-    # The Join may be expensive??, but otherwise we would return all the traits in the DB 
+    # The Join may be expensive??, but otherwise we would return all the traits in the DB
     # We don't add the exclude_clause for now
     trait_query = '''
                 SELECT
@@ -133,9 +133,9 @@ def getDBEvents(config):
                     '''.format(config['start'], config['end'])
 
     logging.warning("Trait Query: %s", trait_query)
-    
+
     cursor.execute(trait_query)
-    
+
     # Add traits to events
     for row in cursor:
         _id = row['event_id']
@@ -180,7 +180,7 @@ def decodeIDs(config, events):
        pro={}
        pro['name']=project.name
        pro['description']=project.description
-       pros[project.id]=pro 
+       pros[project.id]=pro
 
     users = keystone.users.list()
 
@@ -268,7 +268,7 @@ def main ():
     else:
         # Requires our first panko patch
         events = getAPIEvenets(config)
-    
+
     if config['collapse_traits']:
         for event in events:
             for trait in event['traits']:
@@ -284,10 +284,10 @@ def main ():
         events = newevents
 
     decodeIDs(config, events)
-    
+
     with open(json_out, 'w') as outfile:
         json.dump(events, outfile, indent=2, sort_keys=True)
-    
+
 
 def doParseArgs(config):
     """Parse args and return a config dict"""
@@ -319,12 +319,12 @@ def doParseArgs(config):
 
     config['loglevel']=logging.CRITICAL
     config['user']='panko'
-    config['host']='10.113.10.211'
+    config['host']='0.0.0.0'
     config['db']='panko'
     config['nostate']=False
     config['skip_events']=[]
     config['collapse_traits']=False
-    config['config_file'] = '/etc/lakeeffect-radar/leradaracct.conf'
+    config['config_file'] = '/path/to/config/file'
 
     if args.collapse_traits:
         config['collapse_traits']=True
