@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python
 
 import os
 
@@ -9,6 +9,7 @@ import json
 import argparse
 import logging
 import datetime
+import calendar
 
 from keystoneauth1 import loading
 from keystoneauth1 import session
@@ -45,6 +46,12 @@ def getDBEvents(config):
     else:
         exclude_clause=''
 
+    # mysql unix_timestamp assumes local time
+    dt_start = datetime.datetime.strptime(config['start'], '%Y-%m-%dT%H:%M:%S')
+    dt_end = datetime.datetime.strptime(config['end'], '%Y-%m-%dT%H:%M:%S')
+    ts_start = calendar.timegm(dt_start.timetuple())
+    ts_end = calendar.timegm(dt_end.timetuple())
+
     # Get all the events
     event_query = '''
                 SELECT
@@ -57,8 +64,9 @@ def getDBEvents(config):
                     event_type et
                 WHERE
                     e.event_type_id=et.id AND
-                    e.generated BETWEEN unix_timestamp('{}') AND unix_timestamp('{}') {}
-            '''.format(config['start'], config['end'], exclude_clause)
+                    e.generated BETWEEN {} AND {} AND
+                    et.desc != 'compute.metrics.update' {}
+            '''.format(ts_start, ts_end, exclude_clause)
 
     logging.warning("Event Query: %s", event_query)
 
@@ -93,7 +101,7 @@ def getDBEvents(config):
                     event e
                 WHERE
                     e.id = tf.event_id AND
-                    e.generated BETWEEN unix_timestamp('{0}') AND unix_timestamp('{1}')
+                    e.generated BETWEEN {0} AND {1}
                 UNION ALL
                     SELECT
                         ti.event_id AS event_id,
@@ -105,7 +113,7 @@ def getDBEvents(config):
                         event e
                     WHERE
                         e.id = ti.event_id AND
-                        e.generated BETWEEN unix_timestamp('{0}') AND unix_timestamp('{1}')
+                        e.generated BETWEEN {0} AND {1}
                 UNION ALL
                     SELECT
                         tt.event_id AS event_id,
@@ -117,7 +125,7 @@ def getDBEvents(config):
                         event e
                     WHERE
                         e.id = tt.event_id AND
-                        e.generated BETWEEN unix_timestamp('{0}') AND unix_timestamp('{1}')
+                        e.generated BETWEEN {0} AND {1}
                 UNION ALL
                     SELECT
                         td.event_id AS event_id,
@@ -129,8 +137,8 @@ def getDBEvents(config):
                         event e
                     WHERE
                         e.id = td.event_id AND
-                        e.generated BETWEEN unix_timestamp('{0}') AND unix_timestamp('{1}')
-                    '''.format(config['start'], config['end'])
+                        e.generated BETWEEN {0} AND {1}
+                    '''.format(ts_start, ts_end)
 
     logging.warning("Trait Query: %s", trait_query)
 
@@ -172,14 +180,21 @@ def get_keystone_creds():
 def decodeIDs(config, events):
 
     keystone = keystone_client.Client(session=config['session'],interface=config['auth']['OS_INTERFACE'])
-    projects = keystone.projects.list()
 
+    domains = keystone.domains.list()
+    doms={}
+
+    for domain in domains:
+        doms[domain.id]=domain.name
+
+    projects = keystone.projects.list()
     pros={}
 
     for project in projects:
        pro={}
        pro['name']=project.name
        pro['description']=project.description
+       pro['domain'] = doms.get(project.parent_id, "UNKNOWN")
        pros[project.id]=pro
 
     users = keystone.users.list()
@@ -197,13 +212,18 @@ def decodeIDs(config, events):
         except KeyError:
             # Some service events don't have a user tied to them
             continue
-        pid = event['project_id']
+        try:
+            pid = event['project_id']
+        except KeyError:
+            # Some service events don't have a project tied to them
+            continue
         uname = uses.get(uid, {})
         pname = pros.get(pid, {})
         event['user_name'] = uname.get('name', 'UNKNOWN')
         event['project_name'] = pname.get('name', 'UNKNOWN')
+        event['domain'] = pname.get('domain', 'UNKNOWN')
 
-def getAPIEvenets(config):
+def initKeystone(config):
     auth=get_keystone_creds()
     config['auth']=auth
 
@@ -220,7 +240,9 @@ def getAPIEvenets(config):
     sess = session.Session(auth=keystone)
     config['session']=sess
 
-    ceilometer = ceilometer_client.Client(2, session=sess, interface=auth['OS_INTERFACE'])
+def getAPIEvents(config):
+
+    ceilometer = ceilometer_client.Client(2, session=config['session'], interface=config['auth']['OS_INTERFACE'])
 
     query=[]
 
@@ -229,6 +251,7 @@ def getAPIEvenets(config):
     query.append(dict(field='end_timestamp', op='le', value='{}'.format(config['end'])))
 
     # Requires our second set of panko patches
+    query.append(dict(field='event_type', op='eq', value='!compute.metrics.update'))
     if config['nostate']:
         for skip in config['skip_events']:
             query.append(dict(field='event_type', op='eq', value='!{}'.format(skip)))
@@ -263,11 +286,13 @@ def main ():
 
     json_out = "{}/{}_{}.json".format(config['outdir'],config['start'],config['end'])
 
+    initKeystone(config)
+
     if config['use_db']:
         events = getDBEvents(config)
     else:
         # Requires our first panko patch
-        events = getAPIEvenets(config)
+        events = getAPIEvents(config)
 
     if config['collapse_traits']:
         for event in events:
@@ -307,10 +332,6 @@ def doParseArgs(config):
     connection_group = parser.add_mutually_exclusive_group(required=True)
     connection_group.add_argument("-D", "--use-db", help="Use the DB directly", action="store_true")
     connection_group.add_argument("-A", "--use-api", help="Use the API", action="store_true")
-
-
-
-
 
     args = parser.parse_args()
 
@@ -353,7 +374,6 @@ def doParseArgs(config):
 
     if args.nostate:
         config['nostate']=True
-        config['skip_events'].append('compute.metrics.update')
         config['skip_events'].append('compute.instance.exists')
 
     if args.use_db:
