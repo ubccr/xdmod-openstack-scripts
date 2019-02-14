@@ -1,0 +1,46 @@
+--- /usr/lib/python2.7/site-packages/panko/storage/impl_sqlalchemy.py.orig	2018-12-20 10:50:50.578273199 -0500
++++ /usr/lib/python2.7/site-packages/panko/storage/impl_sqlalchemy.py	2018-12-20 10:51:58.167483307 -0500
+@@ -250,12 +250,17 @@
+             event_join_conditions = [models.EventType.id ==
+                                      models.Event.event_type_id]
+ 
++            event_filter_conditions = []
+             if event_filter.event_type:
+-                event_join_conditions.append(models.EventType.desc ==
+-                                             event_filter.event_type)
++                for event_type in event_filter.event_type:
++                    if event_type[0]=='!':
++                        event_filter_conditions.append(models.EventType.desc !=
++                                                 event_type[1:])
++                    else:
++                        event_join_conditions.append(models.EventType.desc ==
++                                             event_type)
+ 
+             # Build up the where conditions
+-            event_filter_conditions = []
+             if event_filter.message_id:
+                 event_filter_conditions.append(
+                     models.Event.message_id == event_filter.message_id)
+--- /usr/lib/python2.7/site-packages/panko/api/controllers/v2/events.py.orig	2018-12-20 10:53:24.665031946 -0500
++++ /usr/lib/python2.7/site-packages/panko/api/controllers/v2/events.py	2018-12-20 11:03:28.102835183 -0500
+@@ -184,7 +184,7 @@
+ 
+ def _event_query_to_event_filter(q):
+     evt_model_filter = {
+-        'event_type': None,
++        'event_type': [],
+         'message_id': None,
+         'start_timestamp': None,
+         'end_timestamp': None
+@@ -220,7 +220,10 @@
+                            ' %(field)s') %
+                          {'operator': i.op, 'field': i.field})
+                 raise base.ClientSideError(error)
+-            evt_model_filter[i.field] = i.value
++            if i.field == 'event_type':
++                evt_model_filter[i.field].append(i.value)
++            else:
++                evt_model_filter[i.field] = i.value
+         elif i.field == 'all_tenants' and admin_proj:
+             all_tenants = strutils.bool_from_string(i.value)
+             if all_tenants:
