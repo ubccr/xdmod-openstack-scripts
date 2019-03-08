@@ -188,6 +188,7 @@ def decodeIDs(config, events):
         doms[domain.id]=domain.name
 
     pros={}
+    uses={}
     for domain in domains:
         projects = keystone.projects.list(domain=domain)
         for project in projects:
@@ -197,9 +198,6 @@ def decodeIDs(config, events):
            pro['domain'] = doms.get(project.parent_id, "UNKNOWN")
            pros[project.id]=pro
 
-
-    uses={}
-    for domain in domains:
         users = keystone.users.list(domain=domain)
         for user in users:
            use={}
