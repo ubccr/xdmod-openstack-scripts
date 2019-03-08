@@ -197,14 +197,14 @@ def decodeIDs(config, events):
        pro['domain'] = doms.get(project.parent_id, "UNKNOWN")
        pros[project.id]=pro
 
-    users = keystone.users.list()
 
     uses={}
-
-    for user in users:
-       use={}
-       use['name']=user.name
-       uses[user.id]=use
+    for domain in domains:
+        users = keystone.users.list(domain=domain)
+        for user in users:
+           use={}
+           use['name']=user.name
+           uses[user.id]=use
 
     for event in events:
         try:
@@ -311,7 +311,7 @@ def main ():
     decodeIDs(config, events)
 
     with open(json_out, 'w') as outfile:
-        json.dump(events, outfile, indent=2, sort_keys=True)
+        json.dump(events, outfile, indent=2, sort_keys=True, separators=(',', ': '))
 
 
 def doParseArgs(config):
