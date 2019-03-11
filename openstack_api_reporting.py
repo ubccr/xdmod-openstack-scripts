@@ -248,8 +248,10 @@ def getAPIEvents(config):
     query.append(dict(field='start_timestamp', op='ge', value='{}'.format(config['start'])))
     query.append(dict(field='end_timestamp', op='le', value='{}'.format(config['end'])))
 
-    # Requires our second set of panko patches
-    query.append(dict(field='event_type', op='eq', value='!compute.metrics.update'))
+    if config['filter_noise']:
+        # Requires our second set of panko patches
+        query.append(dict(field='event_type', op='eq', value='!compute.metrics.update'))
+
     if config['nostate']:
         for skip in config['skip_events']:
             query.append(dict(field='event_type', op='eq', value='!{}'.format(skip)))
@@ -327,6 +329,7 @@ def doParseArgs(config):
     parser.add_argument("-u", "--user", help="Database user, only valid for --use-db")
     parser.add_argument("-p", "--passwd", help="Database password, only valid for --use-db")
     parser.add_argument("-d", "--db", help="Database name, only valid for --use-db")
+    parser.add_argument("-f", "--filter-noise", help="Filter out noisy events. Requires panko patch", action="store_true")
     connection_group = parser.add_mutually_exclusive_group(required=True)
     connection_group.add_argument("-D", "--use-db", help="Use the DB directly", action="store_true")
     connection_group.add_argument("-A", "--use-api", help="Use the API", action="store_true")
@@ -343,10 +346,14 @@ def doParseArgs(config):
     config['nostate']=False
     config['skip_events']=[]
     config['collapse_traits']=False
+    config['filter_noise'] = False
     config['config_file'] = '/path/to/config/file'
 
     if args.collapse_traits:
         config['collapse_traits']=True
+
+    if args.filter_noise:
+        config['filter_noise'] = True
 
     if args.config_file:
         config['config_file'] = args.config_file
